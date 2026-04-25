@@ -7,10 +7,15 @@ import base64
 
 app = FastAPI()
 
-# ✅ CORS (important for frontend)
+# -------------------------------
+# ✅ CORS CONFIG (VERY IMPORTANT)
+# -------------------------------
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # you can restrict later
+    allow_origins=[
+        "https://csv-cleaner-frontend.vercel.app",  # your frontend
+        "http://localhost:3000"  # for local testing
+    ],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -40,14 +45,16 @@ def home():
     return {"message": "CSV Cleaner Backend Running"}
 
 
-# 🔹 UPLOAD → get columns + preview
+# -------------------------------
+# 🔹 UPLOAD → columns + preview
+# -------------------------------
 @app.post("/upload")
 async def upload_file(file: UploadFile = File(...)):
     contents = await file.read()
 
     df = read_file(contents, file.filename)
 
-    # ✅ PREVIEW (TOP 5 ROWS)
+    # ✅ Preview (Top 5 rows)
     preview = df.head(5).to_dict(orient="records")
 
     return {
@@ -56,7 +63,9 @@ async def upload_file(file: UploadFile = File(...)):
     }
 
 
-# 🔹 PROCESS → apply config & return file
+# -------------------------------
+# 🔹 PROCESS → apply config
+# -------------------------------
 @app.post("/process")
 async def process_file(file: UploadFile = File(...), config: str = File(...)):
     contents = await file.read()
@@ -73,12 +82,12 @@ async def process_file(file: UploadFile = File(...), config: str = File(...)):
     # ✅ Rename columns
     df = df.rename(columns=rename_map)
 
-    # ✅ Convert to Excel in memory
+    # ✅ Convert to Excel (in memory)
     output = io.BytesIO()
     df.to_excel(output, index=False)
     output.seek(0)
 
-    # ✅ Convert to base64 (frontend expects this)
+    # ✅ Encode file (for frontend download)
     encoded_file = base64.b64encode(output.read()).decode("utf-8")
 
     return {
