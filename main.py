@@ -1,98 +1,88 @@
-from fastapi import FastAPI, UploadFile, File, Form
+from fastapi import FastAPI, UploadFile, File
 from fastapi.middleware.cors import CORSMiddleware
+import pandas as pd
+import io
 import json
-
-from csv_service import (
-    read_file,
-    get_columns,
-    filter_and_reorder,
-    rename_columns,
-    clean_basic,
-    convert_file
-)
+import base64
 
 app = FastAPI()
 
-# -----------------------------
-# CORS (IMPORTANT FOR REACT)
-# -----------------------------
+# ✅ CORS (important for frontend)
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # later restrict to your frontend URL
+    allow_origins=["*"],  # you can restrict later
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
+# -------------------------------
+# HELPER FUNCTIONS
+# -------------------------------
 
-# -----------------------------
-# ROOT
-# -----------------------------
+def read_file(contents, filename):
+    if filename.endswith(".csv"):
+        return pd.read_csv(io.StringIO(contents.decode("utf-8")))
+    else:
+        return pd.read_excel(io.BytesIO(contents))
+
+
+def get_columns(df):
+    return df.columns.tolist()
+
+
+# -------------------------------
+# ROUTES
+# -------------------------------
+
 @app.get("/")
 def home():
-    return {"message": "CSV Cleaner API is running"}
+    return {"message": "CSV Cleaner Backend Running"}
 
 
-# -----------------------------
-# UPLOAD → GET COLUMNS
-# -----------------------------
-
+# 🔹 UPLOAD → get columns + preview
 @app.post("/upload")
 async def upload_file(file: UploadFile = File(...)):
     contents = await file.read()
 
-    import pandas as pd
-    import io
+    df = read_file(contents, file.filename)
 
-    # Read file
-    if file.filename.endswith(".csv"):
-        df = pd.read_csv(io.StringIO(contents.decode("utf-8")))
-    else:
-        df = pd.read_excel(io.BytesIO(contents))
-
-    # Preview (top 5 rows)
+    # ✅ PREVIEW (TOP 5 ROWS)
     preview = df.head(5).to_dict(orient="records")
 
     return {
-        "columns": df.columns.tolist(),
+        "columns": get_columns(df),
         "preview": preview
     }
-``
 
-# -----------------------------
-# PROCESS FILE
-# -----------------------------
+
+# 🔹 PROCESS → apply config & return file
 @app.post("/process")
-async def process_file(
-    file: UploadFile = File(...),
-    config: str = Form(...)
-):
+async def process_file(file: UploadFile = File(...), config: str = File(...)):
     contents = await file.read()
-
-    # 🔥 SAFE PARSE (NO eval)
-    config = json.loads(config)
-
     df = read_file(contents, file.filename)
 
-    df = filter_and_reorder(df, config.get("columns", []))
-    df = rename_columns(df, config.get("rename", {}))
-    df = clean_basic(df)
+    config = json.loads(config)
 
-    # Output format (optional)
-    output_type = config.get("output_type", "csv")
+    selected_columns = config.get("columns", df.columns.tolist())
+    rename_map = config.get("rename", {})
 
-    file_data, mime_type, file_name = convert_file(df, output_type)
+    # ✅ Select columns
+    df = df[selected_columns]
+
+    # ✅ Rename columns
+    df = df.rename(columns=rename_map)
+
+    # ✅ Convert to Excel in memory
+    output = io.BytesIO()
+    df.to_excel(output, index=False)
+    output.seek(0)
+
+    # ✅ Convert to base64 (frontend expects this)
+    encoded_file = base64.b64encode(output.read()).decode("utf-8")
 
     return {
-        "file": file_data.decode("latin1"),  # safe binary transfer
-        "mime": mime_type,
-        "filename": file_name
+        "file": encoded_file,
+        "filename": "processed.xlsx",
+        "mime": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
     }
-
-
-# -----------------------------
-# LOCAL RUN (for testing)
-# -----------------------------
-if __name__ == "__main__":
-    import uvicorn
-    uvicorn.run(app, host="0.0.0.0", port=10000)
