@@ -1,4 +1,5 @@
 from fastapi import FastAPI, UploadFile, File
+from fastapi.middleware.cors import CORSMiddleware
 import pandas as pd
 import io
 import json
@@ -6,42 +7,66 @@ import base64
 
 app = FastAPI()
 
-# -------------------------------
-# HELPERS
-# -------------------------------
-def read_file(contents, filename):
-    if filename.endswith(".csv"):
-        return pd.read_csv(io.StringIO(contents.decode("utf-8")))
-    else:
-        return pd.read_excel(io.BytesIO(contents))
+# ✅ Simple CORS (this was the correct version)
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 # -------------------------------
-# ROUTES
+# ROOT
 # -------------------------------
 @app.get("/")
 def home():
     return {"status": "Backend running"}
 
+# -------------------------------
+# UPLOAD (COLUMNS + PREVIEW)
+# -------------------------------
 @app.post("/upload")
 async def upload_file(file: UploadFile = File(...)):
     contents = await file.read()
-    df = read_file(contents, file.filename)
+
+    # Read file
+    if file.filename.endswith(".csv"):
+        df = pd.read_csv(io.StringIO(contents.decode("utf-8")))
+    else:
+        df = pd.read_excel(io.BytesIO(contents))
+
+    # Preview (top 5 rows)
+    preview = df.head(5).to_dict(orient="records")
 
     return {
-        "columns": df.columns.tolist()
+        "columns": df.columns.tolist(),
+        "preview": preview
     }
 
+# -------------------------------
+# PROCESS (APPLY CHANGES)
+# -------------------------------
 @app.post("/process")
 async def process_file(file: UploadFile = File(...), config: str = File(...)):
     contents = await file.read()
-    df = read_file(contents, file.filename)
+
+    # Read file
+    if file.filename.endswith(".csv"):
+        df = pd.read_csv(io.StringIO(contents.decode("utf-8")))
+    else:
+        df = pd.read_excel(io.BytesIO(contents))
 
     config = json.loads(config)
 
     selected_columns = config.get("columns", df.columns.tolist())
+    rename_map = config.get("rename", {})
 
+    # Apply transformations
     df = df[selected_columns]
+    df = df.rename(columns=rename_map)
 
+    # Convert to Excel
     output = io.BytesIO()
     df.to_excel(output, index=False)
     output.seek(0)
