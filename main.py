@@ -36,16 +36,28 @@ def home():
 # -----------------------------
 # UPLOAD → GET COLUMNS
 # -----------------------------
+
 @app.post("/upload")
 async def upload_file(file: UploadFile = File(...)):
     contents = await file.read()
 
-    df = read_file(contents, file.filename)
+    import pandas as pd
+    import io
+
+    # Read file
+    if file.filename.endswith(".csv"):
+        df = pd.read_csv(io.StringIO(contents.decode("utf-8")))
+    else:
+        df = pd.read_excel(io.BytesIO(contents))
+
+    # Preview (top 5 rows)
+    preview = df.head(5).to_dict(orient="records")
 
     return {
-        "columns": get_columns(df)
+        "columns": df.columns.tolist(),
+        "preview": preview
     }
-
+``
 
 # -----------------------------
 # PROCESS FILE
