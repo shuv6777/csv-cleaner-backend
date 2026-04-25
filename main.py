@@ -30,14 +30,12 @@ def home():
 async def upload_file(file: UploadFile = File(...)):
     contents = await file.read()
 
-    # Read file
     if file.filename.endswith(".csv"):
         df = pd.read_csv(io.StringIO(contents.decode("utf-8")))
     else:
         df = pd.read_excel(io.BytesIO(contents))
 
-    # Preview (top 5 rows)
-    preview = df.head(5).to_dict(orient="records")
+    preview = df.head(5).fillna("").to_dict(orient="records")
 
     return {
         "columns": df.columns.tolist(),
