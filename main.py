@@ -5,31 +5,34 @@ import io
 import json
 import base64
 
+# -------------------------------
+# INIT APP
+# -------------------------------
 app = FastAPI()
 
 # -------------------------------
-# ✅ CORS CONFIG (VERY IMPORTANT)
+# ✅ CORS (CRITICAL FIX)
 # -------------------------------
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=[
-        "https://csv-cleaner-frontend.vercel.app",  # your frontend
-        "http://localhost:3000"  # for local testing
-    ],
+    allow_origins=["*"],  # allow all (fixes your current issue)
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
 # -------------------------------
-# HELPER FUNCTIONS
+# HELPERS
 # -------------------------------
 
 def read_file(contents, filename):
-    if filename.endswith(".csv"):
-        return pd.read_csv(io.StringIO(contents.decode("utf-8")))
-    else:
-        return pd.read_excel(io.BytesIO(contents))
+    try:
+        if filename.endswith(".csv"):
+            return pd.read_csv(io.StringIO(contents.decode("utf-8")))
+        else:
+            return pd.read_excel(io.BytesIO(contents))
+    except Exception as e:
+        raise Exception(f"File read error: {str(e)}")
 
 
 def get_columns(df):
@@ -42,56 +45,58 @@ def get_columns(df):
 
 @app.get("/")
 def home():
-    return {"message": "CSV Cleaner Backend Running"}
-
+    return {"status": "Backend running"}
 
 # -------------------------------
-# 🔹 UPLOAD → columns + preview
+# UPLOAD (COLUMNS + PREVIEW)
 # -------------------------------
 @app.post("/upload")
 async def upload_file(file: UploadFile = File(...)):
-    contents = await file.read()
+    try:
+        contents = await file.read()
 
-    df = read_file(contents, file.filename)
+        df = read_file(contents, file.filename)
 
-    # ✅ Preview (Top 5 rows)
-    preview = df.head(5).to_dict(orient="records")
+        preview = df.head(5).to_dict(orient="records")
 
-    return {
-        "columns": get_columns(df),
-        "preview": preview
-    }
+        return {
+            "columns": get_columns(df),
+            "preview": preview
+        }
 
+    except Exception as e:
+        return {"error": str(e)}
 
 # -------------------------------
-# 🔹 PROCESS → apply config
+# PROCESS FILE
 # -------------------------------
 @app.post("/process")
 async def process_file(file: UploadFile = File(...), config: str = File(...)):
-    contents = await file.read()
-    df = read_file(contents, file.filename)
+    try:
+        contents = await file.read()
+        df = read_file(contents, file.filename)
 
-    config = json.loads(config)
+        config = json.loads(config)
 
-    selected_columns = config.get("columns", df.columns.tolist())
-    rename_map = config.get("rename", {})
+        selected_columns = config.get("columns", df.columns.tolist())
+        rename_map = config.get("rename", {})
 
-    # ✅ Select columns
-    df = df[selected_columns]
+        # Apply transformations
+        df = df[selected_columns]
+        df = df.rename(columns=rename_map)
 
-    # ✅ Rename columns
-    df = df.rename(columns=rename_map)
+        # Convert to Excel
+        output = io.BytesIO()
+        df.to_excel(output, index=False)
+        output.seek(0)
 
-    # ✅ Convert to Excel (in memory)
-    output = io.BytesIO()
-    df.to_excel(output, index=False)
-    output.seek(0)
+        encoded_file = base64.b64encode(output.read()).decode("utf-8")
 
-    # ✅ Encode file (for frontend download)
-    encoded_file = base64.b64encode(output.read()).decode("utf-8")
+        return {
+            "file": encoded_file,
+            "filename": "processed.xlsx",
+            "mime": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+        }
 
-    return {
-        "file": encoded_file,
-        "filename": "processed.xlsx",
-        "mime": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-    }
+    except Exception as e:
+        return {"error": str(e)}
