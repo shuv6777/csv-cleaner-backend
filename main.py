@@ -1,36 +1,25 @@
-from fastapi import FastAPI, UploadFile, File, Request
-from fastapi.responses import JSONResponse
+from fastapi import FastAPI, UploadFile, File
+from fastapi.middleware.cors import CORSMiddleware
 import pandas as pd
 import io
 import json
 import base64
 
+# -------------------------------
+# INIT APP
+# -------------------------------
 app = FastAPI()
 
 # -------------------------------
-# 🔥 HANDLE PREFLIGHT (CRITICAL)
+# ✅ PROPER CORS (FINAL FIX)
 # -------------------------------
-@app.options("/{rest_of_path:path}")
-async def preflight_handler(rest_of_path: str):
-    return JSONResponse(
-        content={"message": "OK"},
-        headers={
-            "Access-Control-Allow-Origin": "*",
-            "Access-Control-Allow-Methods": "*",
-            "Access-Control-Allow-Headers": "*",
-        },
-    )
-
-# -------------------------------
-# 🔥 FORCE CORS HEADERS
-# -------------------------------
-@app.middleware("http")
-async def cors_middleware(request: Request, call_next):
-    response = await call_next(request)
-    response.headers["Access-Control-Allow-Origin"] = "*"
-    response.headers["Access-Control-Allow-Methods"] = "*"
-    response.headers["Access-Control-Allow-Headers"] = "*"
-    return response
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],   # allow all for now
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 # -------------------------------
 # HELPERS
@@ -48,6 +37,9 @@ def read_file(contents, filename):
 def home():
     return {"status": "Backend running"}
 
+# -------------------------------
+# UPLOAD (COLUMNS + PREVIEW)
+# -------------------------------
 @app.post("/upload")
 async def upload_file(file: UploadFile = File(...)):
     contents = await file.read()
@@ -60,6 +52,9 @@ async def upload_file(file: UploadFile = File(...)):
         "preview": preview
     }
 
+# -------------------------------
+# PROCESS FILE
+# -------------------------------
 @app.post("/process")
 async def process_file(file: UploadFile = File(...), config: str = File(...)):
     contents = await file.read()
@@ -77,10 +72,10 @@ async def process_file(file: UploadFile = File(...), config: str = File(...)):
     df.to_excel(output, index=False)
     output.seek(0)
 
-    encoded = base64.b64encode(output.read()).decode("utf-8")
+    encoded_file = base64.b64encode(output.read()).decode("utf-8")
 
     return {
-        "file": encoded,
+        "file": encoded_file,
         "filename": "processed.xlsx",
         "mime": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
     }
