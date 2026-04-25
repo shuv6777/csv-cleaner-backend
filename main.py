@@ -8,16 +8,29 @@ import base64
 app = FastAPI()
 
 # -------------------------------
-# 🔥 FORCE CORS (WORKS 100%)
+# 🔥 HANDLE PREFLIGHT (CRITICAL)
+# -------------------------------
+@app.options("/{rest_of_path:path}")
+async def preflight_handler(rest_of_path: str):
+    return JSONResponse(
+        content={"message": "OK"},
+        headers={
+            "Access-Control-Allow-Origin": "*",
+            "Access-Control-Allow-Methods": "*",
+            "Access-Control-Allow-Headers": "*",
+        },
+    )
+
+# -------------------------------
+# 🔥 FORCE CORS HEADERS
 # -------------------------------
 @app.middleware("http")
-async def add_cors_headers(request: Request, call_next):
+async def cors_middleware(request: Request, call_next):
     response = await call_next(request)
     response.headers["Access-Control-Allow-Origin"] = "*"
-    response.headers["Access-Control-Allow-Headers"] = "*"
     response.headers["Access-Control-Allow-Methods"] = "*"
+    response.headers["Access-Control-Allow-Headers"] = "*"
     return response
-
 
 # -------------------------------
 # HELPERS
@@ -28,7 +41,6 @@ def read_file(contents, filename):
     else:
         return pd.read_excel(io.BytesIO(contents))
 
-
 # -------------------------------
 # ROUTES
 # -------------------------------
@@ -36,9 +48,6 @@ def read_file(contents, filename):
 def home():
     return {"status": "Backend running"}
 
-# -------------------------------
-# UPLOAD
-# -------------------------------
 @app.post("/upload")
 async def upload_file(file: UploadFile = File(...)):
     contents = await file.read()
@@ -51,9 +60,6 @@ async def upload_file(file: UploadFile = File(...)):
         "preview": preview
     }
 
-# -------------------------------
-# PROCESS
-# -------------------------------
 @app.post("/process")
 async def process_file(file: UploadFile = File(...), config: str = File(...)):
     contents = await file.read()
